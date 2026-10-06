@@ -10,6 +10,10 @@ const resultValue = (body: string) =>
   ).returnSites[0]?.value;
 
 const mutations = [
+  'const shared = { mode: "initial" }; const original = [shared]; const copy = [...original]; copy[0].mode = "updated"; return shared.mode;',
+  'const original = { nested: { mode: "initial" } }; const copy = { ...original }; copy.nested.mode = "updated"; return original.nested.mode;',
+  'const shared = { mode: "initial" }; const options = flag ? shared : { mode: "other" }; options.mode = "updated"; return shared.mode;',
+  'const child = { mode: "initial" }; const options = { layer: { child } }; options.layer.child.mode = "updated"; return child.mode;',
   'const options = { mode: "initial" }; options.mode = "updated"; return options.mode;',
   "const options = { count: 1 }; options.count += 1; return options.count;",
   "const options = { count: 1 }; options.count++; return options.count;",
@@ -37,6 +41,27 @@ describe("JavaScript semantic values after explicit property mutations", () => {
       return options.mode;
     `),
     ).toEqual({ status: "literal", value: "initial" });
+  });
+
+  it("keeps scalar slots in a spread source known after a copy slot write", () => {
+    expect(
+      resultValue(`
+      const original = { mode: "initial" };
+      const copy = { ...original };
+      copy.mode = "updated";
+      return original.mode;
+    `),
+    ).toEqual({ status: "literal", value: "initial" });
+  });
+
+  it("keeps conditional object branches unknown after a property write", () => {
+    expect(
+      resultValue(`
+      const options = flag ? { mode: "initial" } : { mode: "other" };
+      options.mode = "updated";
+      return options.mode;
+    `)?.status,
+    ).toBe("unknown");
   });
 
   it("keeps a copied primitive initializer known", () => {
