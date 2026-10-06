@@ -228,6 +228,11 @@ try {
         procedure: addressOf(fixtureSymbols.compute),
       });
       assert.ok(compute.pseudocode.trim());
+      assert.doesNotMatch(
+        compute.pseudocode,
+        /\b__thiscall\b/u,
+        "Upstream x64 calling-convention rewrite leaked into recovered pseudocode",
+      );
       assert.match(compute.pseudocode, /(?:0xb|\b11\b|<<)/u);
       const dispatch = await call("analyze_function", {
         procedure: addressOf(fixtureSymbols.dispatch),
