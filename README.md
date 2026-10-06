@@ -400,7 +400,8 @@ selected executable or endpoint, actions, and any origin or environment
 selections needed by the scenario. Scenario JSON contains secret references and
 environment-variable names, never secret values. The default capture retains
 only the final URL; request `dom`, `accessibility`, or `screenshot` when an
-interaction changes the page without navigating. See the
+interaction changes the page without navigating. For asynchronous updates,
+wait for a page-specific result-ready condition before capture. See the
 [browser scenario contract](docs/browser-scenario-contract.md), including its
 interaction example.
 

@@ -57,8 +57,12 @@ place, change the page without changing the URL. A capture with only the
 default `url` artifact then reports that the click succeeded and the URL is
 unchanged, which cannot tell you whether results appeared.
 
-Request the artifacts that answer your question. This scenario clicks a Search
-button on a local page and captures the final DOM, accessibility tree, and URL:
+Request the artifacts that answer your question and wait for the state you want
+to inspect. This scenario clicks a Search button, waits for the current search
+results, and captures the final DOM, accessibility tree, and URL. It assumes the
+local page clears `#results`'s `data-state` while loading and sets it to `ready`
+after rendering the current response. Adapt the selectors and readiness marker
+to your page; an already-visible container or previous results are insufficient.
 
 ```json
 {
@@ -72,6 +76,13 @@ button on a local page and captures the final DOM, accessibility tree, and URL:
       "step_id": "search",
       "action": "click",
       "locator": { "kind": "css", "selector": "#search" },
+      "timeout_ms": 10000
+    },
+    {
+      "step_id": "results-ready",
+      "action": "wait_for",
+      "locator": { "kind": "css", "selector": "#results[data-state='ready']" },
+      "state": "visible",
       "timeout_ms": 10000
     }
   ],
@@ -87,9 +98,13 @@ rea capture-browser-scenario ./browser-search.json --json > browser-search-captu
 ```
 
 Through MCP, pass the same object as the `capture_browser_scenario` arguments.
-The final step's DOM and accessibility artifacts then contain the rendered
-result text inline, so the result answers what the click displayed. REA still
-launches and cleans up the browser profile.
+The final step's DOM and accessibility artifacts retain the page state at that
+capture time inline. REA still launches and cleans up the browser profile.
+
+The click's `timeout_ms` covers the click action. A non-navigating `fetch` or
+delayed render can finish later, so use `wait_for` to observe a page-specific
+ready condition before final capture. A page that updates synchronously can
+omit that wait. REA does not infer application readiness from capture selection.
 
 Choose captures by the question being asked:
 
@@ -112,7 +127,8 @@ Capture states are reported per artifact. An artifact you did not request is
 to show. A step's `completeness` of `complete` covers only the sections that
 were requested. A URL-only capture can be `complete` and still be unable to
 answer a question about rendered content, so add the relevant artifact and run
-the scenario again rather than inferring from its absence.
+the scenario again rather than inferring from its absence. Capture completeness
+also does not assert that the page's background work has finished.
 
 The browser boundary is part of the contract. Launch mode requires a
 caller-selected executable and always uses a provider-owned temporary profile
