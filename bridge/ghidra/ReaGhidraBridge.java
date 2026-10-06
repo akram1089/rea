@@ -108,7 +108,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
         "run_id",
         "target_sha256",
         "provider_version",
-        "profile_digest"
+        "profile_digest",
+        "analysis_extensions"
     );
     private static final Set<String> REQUEST_KEYS = Set.of(
         "id",
@@ -151,6 +152,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
     private List<FunctionEntry> procedureInventory;
     private List<InventoryItem> stringInventory;
     private DecompInterface decompiler;
+    private final ReaGhidraExtensions analysisExtensions = new ReaGhidraExtensions();
     private static AddressSpace sessionDefaultAddressSpace;
 
     @Override
@@ -196,6 +198,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         // each edit owns a real outer transaction and can roll back immediately.
         end(true);
         try {
+            analysisExtensions.analyze(descriptor.analysisExtensions, currentProgram, monitor);
             initializeDecompiler();
             serve(descriptor);
         }
@@ -204,6 +207,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 decompiler.dispose();
                 decompiler = null;
             }
+            analysisExtensions.close();
         }
     }
 
@@ -414,6 +418,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 .toArray(String[]::new)
         ));
         result.add("target", target);
+        JsonArray extensions = analysisExtensions.reports();
+        if (extensions.size() > 0) result.add("analysis_extensions", extensions);
         return result;
     }
 
@@ -454,6 +460,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
     private JsonObject inspectNativeLoadImage(JsonObject params) throws Exception {
         requireKeys(params, Set.of());
         JsonObject result = new JsonObject();
+        JsonArray recovery = analysisExtensions.inspectImage();
+        if (recovery.size() > 0) result.add("metadata_recovery", recovery);
         result.addProperty("executable_format", currentProgram.getExecutableFormat());
         result.addProperty("language_id", currentProgram.getLanguageID().getIdAsString());
         result.addProperty("compiler_spec_id", currentProgram.getCompilerSpec().getCompilerSpecID().getIdAsString());
@@ -822,6 +830,10 @@ public final class ReaGhidraBridge extends HeadlessScript {
         result.addProperty("total_fields", totalFields);
         result.addProperty("truncated", totalFields > 20_000);
         result.add("limitations", GSON.toJsonTree(List.of("Layouts are Ghidra data-type database observations; original debug/source authority and flexible-tail semantics are not inferred. Nested and recursive types retain category-path identities for separate inspection.", "At most 20000 fields or enum members are serialized per type to bound provider output. total_fields and truncated report omissions. Enum values preserve Ghidra's signed long representation.")));
+        if (type != null) {
+            JsonObject metadata = analysisExtensions.inspectDataType(currentProgram, type, address, monitor);
+            if (metadata != null) result.add("metadata_recovery", metadata);
+        }
         return result;
     }
 
@@ -3062,7 +3074,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
             requireString(object, "run_id"),
             requireSha256(object, "target_sha256"),
             requireString(object, "provider_version"),
-            requireString(object, "profile_digest")
+            requireString(object, "profile_digest"),
+            object.has("analysis_extensions") ? object.getAsJsonArray("analysis_extensions") : new JsonArray()
         );
     }
 
@@ -3246,7 +3259,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
         String runId,
         String targetSha256,
         String providerVersion,
-        String profileDigest
+        String profileDigest,
+        JsonArray analysisExtensions
     ) {}
     private record Request(int id, String method, JsonObject params) {}
 
