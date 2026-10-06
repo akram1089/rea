@@ -58,6 +58,11 @@ const evaluateBinding = (
   binding: JavaScriptSemanticBindingState,
   context: EvaluationContext,
 ): JavaScriptSemanticValue => {
+  if (binding.valueMutated)
+    return {
+      status: "unknown",
+      reason: `Binding ${binding.name} has a property mutation.`,
+    };
   if (context.bindings.has(binding.bindingId))
     return { status: "cycle", reason: `Alias cycle at ${binding.name}.` };
   if (binding.initializers.length === 0)
