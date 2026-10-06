@@ -49,6 +49,71 @@ profile for this request; it does not start your fixture server or install a
 browser. A schema-valid scenario does not prove that the executable or target
 is available on the host.
 
+## Interaction example: capture the visible result
+
+The default final URL answers "where did the page end up?", not "what did the
+page show?". Many interactions, such as a search button that renders results in
+place, change the page without changing the URL. A capture with only the
+default `url` artifact then reports that the click succeeded and the URL is
+unchanged, which cannot tell you whether results appeared.
+
+Request the artifacts that answer your question. This scenario clicks a Search
+button on a local page and captures the final DOM, accessibility tree, and URL:
+
+```json
+{
+  "browser": {
+    "mode": "launch",
+    "executable_path": "/absolute/path/to/chromium"
+  },
+  "start_url": { "url": "http://127.0.0.1:3000" },
+  "actions": [
+    {
+      "step_id": "search",
+      "action": "click",
+      "locator": { "kind": "css", "selector": "#search" },
+      "timeout_ms": 10000
+    }
+  ],
+  "capture": { "at_end": ["dom", "accessibility", "url"] }
+}
+```
+
+Save it as `browser-search.json` and run it the same way as the minimal
+example:
+
+```bash
+rea capture-browser-scenario ./browser-search.json --json > browser-search-capture.json
+```
+
+Through MCP, pass the same object as the `capture_browser_scenario` arguments.
+The final step's DOM and accessibility artifacts then contain the rendered
+result text inline, so the result answers what the click displayed. REA still
+launches and cleans up the browser profile.
+
+Choose captures by the question being asked:
+
+- `dom` and `accessibility`: text or structure the page rendered, such as
+  search results, validation messages, or updated lists. The accessibility tree
+  is usually the more compact way to read visible text.
+- `screenshot`: visual layout or styling, or content not exposed as text, such
+  as a canvas.
+- `history` or `storage`: navigation history, or cookies and web storage the
+  interaction wrote. Request them only when that state is the question; they
+  are never captured implicitly.
+- `after_each_step` instead of `at_end`: intermediate state between actions in
+  a multi-step scenario.
+- `events` (`console`, `page-errors`, `network`, and so on): how the page
+  reached its result, such as the request a search issued or an error it
+  logged. Select only the event families you need.
+
+Capture states are reported per artifact. An artifact you did not request is
+`not_requested`, which means REA did not look, not that the page had nothing
+to show. A step's `completeness` of `complete` covers only the sections that
+were requested. A URL-only capture can be `complete` and still be unable to
+answer a question about rendered content, so add the relevant artifact and run
+the scenario again rather than inferring from its absence.
+
 The browser boundary is part of the contract. Launch mode requires a
 caller-selected executable and always uses a provider-owned temporary profile
 that is closed and deleted during cleanup. Connect mode accepts only an
