@@ -1,4 +1,3 @@
-using System;
 using System.Runtime.CompilerServices;
 
 interface IProbe { int Compute(int value); }
@@ -25,13 +24,16 @@ static class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     static int DispatchInterface(IProbe value, int input) => value.Compute(input);
 
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static int Consume(string value) => value.Length;
+
     static int Main(string[] args)
     {
         BaseProbe[] probes = { new BaseProbe(), new DerivedProbe() };
         int result = Dispatch(probes[args.Length % probes.Length], args.Length);
         result += DispatchInterface(new DerivedProbe(), args.Length);
-        Console.WriteLine("REA_NATIVEAOT_FROZEN");
-        Console.WriteLine(probes[args.Length % probes.Length].ToString());
+        result += Consume("REA_NATIVEAOT_FROZEN");
+        result += Consume(probes[args.Length % probes.Length].ToString());
         return result;
     }
 }

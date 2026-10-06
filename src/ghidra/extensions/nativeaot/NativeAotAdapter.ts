@@ -1,56 +1,5 @@
-import { z } from "zod";
 import type { GhidraExtensionAdapter } from "../GhidraExtensions.js";
-
-const report = z
-  .object({
-    id: z.literal("nativeaot"),
-    integration_api: z.literal(1),
-    source_revision: z.literal("effeb734fc570c32650f88b159608979dc7b423e"),
-    source_revision_authority: z.literal("build-reported-unattested"),
-    status: z.enum([
-      "complete",
-      "partial",
-      "not_applicable",
-      "unsupported",
-      "failed",
-    ]),
-    reason: z.string().nullable(),
-    method_tables: z.number().int().nonnegative(),
-    diagnostics: z.array(z.string()),
-    header_address: z
-      .string()
-      .regex(/^0x[0-9a-f]+$/u)
-      .optional(),
-    discovery: z.enum(["symbol", "signature-heuristic"]).optional(),
-    format_major: z.number().int().optional(),
-    format_minor: z.number().int().optional(),
-    derived_memory: z
-      .object({
-        address: z.string().regex(/^0x[0-9a-f]+$/u),
-        size_bytes: z.number().int().nonnegative(),
-        sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-        file_offset: z.null(),
-      })
-      .optional(),
-    coverage: z
-      .strictObject({
-        frozen_object_candidates: z.number().int().nonnegative(),
-        frozen_objects_annotated: z.number().int().nonnegative(),
-        basis: z.literal(
-          "rehydrated-pointer-candidates-and-committed-instance-types",
-        ),
-      })
-      .optional(),
-    types: z
-      .array(
-        z.object({
-          address: z.string().regex(/^0x[0-9a-f]+$/u),
-          type: z.string().min(1),
-        }),
-      )
-      .optional(),
-  })
-  .strict();
+import { validateNativeAotReport } from "./NativeAotReport.js";
 
 /** NativeAOT-specific prerequisites and report interpretation behind the extension boundary. */
 export const nativeAotAdapter: GhidraExtensionAdapter = {
@@ -65,50 +14,11 @@ export const nativeAotAdapter: GhidraExtensionAdapter = {
           target.managed === true
         ? "NativeAOT recovery requires an x86-64 ELF or native PE target on Linux; PE/CLI and ReadyToRun assemblies use inspect_managed_artifact; omit REA_GHIDRA_NATIVEAOT_JAR for ordinary native analysis."
         : null,
-  validate: (value) => {
-    if (
-      value.status === "failed" &&
-      typeof value.result.loader_failure === "string" &&
-      value.result.loader_failure === value.reason
-    )
-      return null;
-    const parsed = report.safeParse(value.result);
-    if (
-      !parsed.success ||
-      parsed.data.status !== value.status ||
-      parsed.data.reason !== value.reason
-    )
-      return "NativeAOT extension returned a malformed or inconsistent producer report.";
-    if (
-      ["complete", "partial"].includes(value.status) &&
-      (parsed.data.method_tables === 0 ||
-        parsed.data.format_major !== 9 ||
-        parsed.data.format_minor !== 1 ||
-        parsed.data.types?.length !== parsed.data.method_tables ||
-        parsed.data.derived_memory === undefined ||
-        parsed.data.header_address === undefined ||
-        parsed.data.discovery === undefined ||
-        parsed.data.coverage === undefined ||
-        parsed.data.reason !== null)
-    )
-      return "NativeAOT recovery omitted its supported format, method-table inventory or derived-memory identity.";
-    const coverage = parsed.data.coverage;
-    if (
-      coverage !== undefined &&
-      (coverage.frozen_objects_annotated > coverage.frozen_object_candidates ||
-        (value.status === "complete" &&
-          coverage.frozen_objects_annotated !==
-            coverage.frozen_object_candidates))
-    )
-      return "NativeAOT recovery coverage contradicts its reported completion status.";
-    const types = parsed.data.types ?? [];
-    if (new Set(types.map((type) => type.address)).size !== types.length)
-      return "NativeAOT recovery repeated a method-table identity.";
-    return null;
-  },
+  validate: validateNativeAotReport,
   limitations: [
     "Optional NativeAOT recovery is verified for .NET 8.0.22 RTR 9.1 Linux x64 ELF and Windows x64 PE targets on a Linux host. Other runtime layouts, target architectures and hosts are unsupported.",
     "Type names and relationships use recovery heuristics; original C# source and custom field layouts are not recovered. Rehydrated analysis-memory bytes are derived, without original file offsets or runtime observations.",
+    "Method prototypes are Ghidra inferences, not original signatures. Pre-recovery conventions are retained; new functions use the loaded compiler default. Verify parameter roles against instructions and call sites.",
     "The configured extension retains its actual JAR digest. Its reported source revision is not an attestation of caller-supplied build bytes.",
   ],
 };

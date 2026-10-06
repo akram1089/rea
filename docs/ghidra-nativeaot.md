@@ -77,6 +77,11 @@ they are not captured runtime state. Candidate/committed instance annotation
 counts distinguish partial frozen-object coverage. Coverage concerns the
 recovered candidate set, not every possible object or every runtime type.
 
+REA preserves pre-recovery calling conventions and uses the loaded compiler
+specification default for newly created methods. The upstream universal
+`__thiscall` assignment is not treated as x64 ABI authority. Parameters and
+method prototypes remain inferences; verify them against instructions/call sites.
+
 Type relationships and System.Object/System.String identification use upstream
 heuristics. Generated names are explicitly marked; original class/member names
 and custom field layouts remain unknown. Pseudocode is recovered native logic,

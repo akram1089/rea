@@ -64,7 +64,11 @@ public final class NativeAotExtension {
             derivedRange.add("file_offset", JsonNull.INSTANCE);
             stage = "method-table-recovery";
             manager = MethodTableManager.createForDirectory(program, located.directory());
+            var conventions = NativeAotMethodConventions.capture(program, monitor);
             new MethodTableCrawler(manager, program, scan).analyze(monitor, log);
+            stage = "calling-convention-preservation";
+            NativeAotMethodConventions.restore(program, manager, conventions, monitor);
+            log.appendMsg("REA", "Preserved pre-recovery calling conventions; new functions use the loaded compiler specification default. Original method signatures remain unknown.");
             if (manager.getObjectMT() == null || manager.getMethodTableCount() == 0)
                 throw new UnsupportedOperationException("No unambiguous System.Object method table was recovered at header " + located.address());
             stage = "frozen-object-annotation";
@@ -116,6 +120,7 @@ public final class NativeAotExtension {
         summary.add("types", report.has("types") ? report.get("types").deepCopy() : new JsonArray());
         JsonArray limitations = new JsonArray();
         limitations.add("Recovery covers the reported metadata candidates; it does not reconstruct original C# source, custom field layouts, every runtime object, or execution behavior.");
+        limitations.add("Method prototypes and parameter names remain Ghidra inferences; verify them against instructions and call sites. Pre-recovery conventions are retained rather than universally forcing __thiscall.");
         limitations.add("NativeAOT type identities and relationships are inferred; generated names are not original names. Derived memory has no original file offsets.");
         summary.add("limitations", limitations);
         return summary;

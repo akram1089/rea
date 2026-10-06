@@ -1,3 +1,4 @@
+import { ghidraExtensionFailure } from "./extensions/GhidraExtensionFailures.js";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -65,7 +66,6 @@ import type { GhidraSessionInfo } from "./GhidraSessionValues.js";
 import {
   ghidraExtensionSchema,
   resolveGhidraExtensions,
-  validateGhidraExtensionResults,
   validateGhidraExtensionProfile,
   ghidraExtensionLimitations,
 } from "./extensions/GhidraExtensions.js";
@@ -323,25 +323,12 @@ export class GhidraProvider implements AnalysisProviderCandidate {
       operation: AnalysisOperation,
       info: GhidraSessionInfo,
     ): Promise<AnalysisError | undefined> => {
-      const reports = info.analysis_extensions ?? [];
-      const invalid = validateGhidraExtensionResults(extensions, reports);
-      const failed = reports.find(
-        (value) => value.status === "unsupported" || value.status === "failed",
+      extensionFailure = ghidraExtensionFailure(
+        extensions,
+        info.analysis_extensions ?? [],
+        operation,
       );
-      if (invalid === null && failed === undefined) return undefined;
-      extensionFailure =
-        invalid === null && failed?.status === "unsupported"
-          ? new AnalysisCapabilityUnavailableError(
-              "ghidra",
-              operation,
-              `${failed.id}: ${failed.reason}. Omit REA_GHIDRA_NATIVEAOT_JAR to continue ordinary native analysis.`,
-            )
-          : new ProviderAdapterError("ghidra", operation, {
-              diagnostics: {
-                reason: invalid ?? failed?.reason ?? "Ghidra extension failed",
-                analysis_extensions: jsonValueSchema.parse(reports),
-              },
-            });
+      if (extensionFailure === undefined) return undefined;
       await client.close();
       return extensionFailure;
     };
