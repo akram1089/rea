@@ -288,8 +288,10 @@ it("projects literal seeds and static object flow", () => {
     seed: { kind: "literal", value: "TOKEN" },
     direction: "forward-influence",
   });
-  expect(literal.status).toBe("ambiguous");
-  expect(literal.summary.total_seed_matches).toBe(3);
+  // source.count = 2 makes the initializer-derived object unknown, so TOKEN
+  // is no longer a definite literal seed. Structural flow is asserted above.
+  expect(literal.status).toBe("partial");
+  expect(literal.summary.total_seed_matches).toBe(0);
   const property = queryJavaScriptSemanticGraph(graph, {
     seed: { kind: "property", name: "token" },
     direction: "forward-influence",
