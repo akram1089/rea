@@ -1,5 +1,8 @@
+import { execFile } from "node:child_process";
+import { constants } from "node:fs";
+import { promisify } from "node:util";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -152,6 +155,41 @@ describe("optional Ghidra extension boundary", () => {
       ).ok,
     ).toBe(false);
   });
+  it.skipIf(process.platform === "win32")(
+    "rejects a FIFO without requiring another process to open its writer",
+    async () => {
+      const path = join(await root(), "not-a-jar.fifo");
+      await promisify(execFile)("mkfifo", [path]);
+      let writerRequired = false;
+      let rescueTimer: ReturnType<typeof setTimeout> | undefined;
+      // Release a broken blocking-open implementation so regression failures
+      // do not strand a libuv filesystem worker. Success needs no FIFO peer.
+      const rescue = new Promise<void>((resolve) => {
+        rescueTimer = setTimeout(() => {
+          writerRequired = true;
+          void open(path, constants.O_WRONLY | constants.O_NONBLOCK)
+            .then((file) => file.close())
+            .then(resolve, () => resolve());
+        }, 1000);
+      });
+      try {
+        const resolved = await resolveGhidraExtensions(
+          config(path),
+          target,
+          "linux",
+        );
+        expect(resolved.ok).toBe(false);
+        if (!resolved.ok)
+          expect(resolved.error).toMatchObject({
+            diagnostics: { reason: expect.stringContaining("regular JAR") },
+          });
+        expect(writerRequired).toBe(false);
+      } finally {
+        clearTimeout(rescueTimer);
+        if (writerRequired) await rescue;
+      }
+    },
+  );
   it("honors cancellation before artifact I/O", async () => {
     const controller = new AbortController();
     controller.abort();

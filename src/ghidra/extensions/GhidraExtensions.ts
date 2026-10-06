@@ -60,7 +60,10 @@ const MAX_EXTENSION_BYTES = 8 * 1024 * 1024;
 
 /** Read a bounded regular artifact through its open handle, without ambient state changes. */
 const readJar = async (path: string): Promise<Buffer> => {
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const file = await open(
+    path,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
   try {
     const stat = await file.stat();
     if (!stat.isFile() || stat.size < 4 || stat.size > MAX_EXTENSION_BYTES)
