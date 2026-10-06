@@ -106,8 +106,17 @@ try {
     { timeout: 360000 },
   );
   if (["unsupported", "malformed", "ambiguous"].includes(mode)) {
-    assert.equal(response.isError, true, JSON.stringify(response));
-    const diagnostic = JSON.stringify(response);
+    // MCP open binds a lazy session; the first inspection starts import.
+    let failure = response;
+    if (failure.isError !== true) {
+      opened = true;
+      failure = await client.callTool(
+        { name: "inspect_native_load_image", arguments: {} },
+        { timeout: 360000 },
+      );
+    }
+    assert.equal(failure.isError, true, JSON.stringify(failure));
+    const diagnostic = JSON.stringify(failure);
     assert.match(
       diagnostic,
       mode === "unsupported"
@@ -116,7 +125,7 @@ try {
           ? /Reversed NativeAOT section/
           : /Ambiguous NativeAOT directory candidates/,
     );
-    report = { mode, target, sha256, typed_failure: response };
+    report = { mode, target, sha256, typed_failure: failure };
   } else {
     assert.notEqual(response.isError, true, JSON.stringify(response));
     opened = true;
