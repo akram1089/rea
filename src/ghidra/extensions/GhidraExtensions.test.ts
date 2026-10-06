@@ -254,6 +254,16 @@ describe("Ghidra extension profile and producer validation", () => {
         },
       });
   });
+  it("does not substitute another artifact under an unchanged configured path", async () => {
+    const first = await artifact();
+    const second = await artifact();
+    await expect(
+      snapshotGhidraExtensions(
+        [{ ...second.extension, configured_path: first.path }],
+        await root(),
+      ),
+    ).rejects.toThrow("resolved path differs");
+  });
   it("rejects unregistered descriptors before snapshot filesystem writes", async () => {
     const { extension } = await artifact();
     const runtime = await root();

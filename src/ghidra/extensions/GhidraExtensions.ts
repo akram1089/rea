@@ -184,6 +184,10 @@ export const snapshotGhidraExtensions = async (
       throw new Error(
         `Unregistered Ghidra extension identity: ${extension.id}`,
       );
+    if ((await realpath(extension.configured_path)) !== extension.path)
+      throw new Error(
+        `Ghidra extension resolved path differs from explicit configuration: ${extension.id}`,
+      );
   }
   const directory = join(runtimeRoot, "extensions");
   await mkdir(directory, { mode: 0o700 });
