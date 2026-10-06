@@ -198,6 +198,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
         // each edit owns a real outer transaction and can roll back immediately.
         end(true);
         try {
+            if (!descriptor.transport.equals("unix-socket") && descriptor.analysisExtensions.size() > 0)
+                throw new IOException("Windows Ghidra P0 does not admit metadata recovery or database mutation.");
             analysisExtensions.analyze(descriptor.analysisExtensions, currentProgram, monitor);
             initializeDecompiler();
             serve(descriptor);

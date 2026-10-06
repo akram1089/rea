@@ -17,13 +17,16 @@ const report = z
     reason: z.string().nullable(),
     method_tables: z.number().int().nonnegative(),
     diagnostics: z.array(z.string()),
-    header_address: z.string().optional(),
+    header_address: z
+      .string()
+      .regex(/^0x[0-9a-f]+$/u)
+      .optional(),
     discovery: z.enum(["symbol", "signature-heuristic"]).optional(),
     format_major: z.number().int().optional(),
     format_minor: z.number().int().optional(),
     derived_memory: z
       .object({
-        address: z.string(),
+        address: z.string().regex(/^0x[0-9a-f]+$/u),
         size_bytes: z.number().int().nonnegative(),
         sha256: z.string().regex(/^[a-f0-9]{64}$/u),
         file_offset: z.null(),
@@ -39,7 +42,12 @@ const report = z
       })
       .optional(),
     types: z
-      .array(z.object({ address: z.string(), type: z.string() }))
+      .array(
+        z.object({
+          address: z.string().regex(/^0x[0-9a-f]+$/u),
+          type: z.string().min(1),
+        }),
+      )
       .optional(),
   })
   .strict();
@@ -77,9 +85,25 @@ export const nativeAotAdapter: GhidraExtensionAdapter = {
         parsed.data.format_major !== 9 ||
         parsed.data.format_minor !== 1 ||
         parsed.data.types?.length !== parsed.data.method_tables ||
-        parsed.data.derived_memory === undefined)
+        parsed.data.derived_memory === undefined ||
+        parsed.data.header_address === undefined ||
+        parsed.data.discovery === undefined ||
+        parsed.data.coverage === undefined ||
+        parsed.data.reason !== null)
     )
       return "NativeAOT recovery omitted its supported format, method-table inventory or derived-memory identity.";
+    const coverage = parsed.data.coverage;
+    if (
+      coverage !== undefined &&
+      (coverage.frozen_objects_annotated > coverage.frozen_object_candidates ||
+        (value.status === "complete" &&
+          coverage.frozen_objects_annotated !==
+            coverage.frozen_object_candidates))
+    )
+      return "NativeAOT recovery coverage contradicts its reported completion status.";
+    const types = parsed.data.types ?? [];
+    if (new Set(types.map((type) => type.address)).size !== types.length)
+      return "NativeAOT recovery repeated a method-table identity.";
     return null;
   },
   limitations: [

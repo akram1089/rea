@@ -271,6 +271,78 @@ describe("Ghidra extension profile and producer validation", () => {
       snapshotGhidraExtensions([{ ...extension, id: "unknown" }], runtime),
     ).rejects.toThrow("Unregistered");
   });
+});
+
+describe("Ghidra extension recovery coverage", () => {
+  it("validates positive recovery, measured partial coverage and distinct table identities", async () => {
+    const { extension } = await artifact();
+    const baseline = result(extension.sha256);
+    const positive: GhidraExtensionResult = {
+      ...baseline,
+      status: "complete",
+      reason: null,
+      result: {
+        ...baseline.result,
+        status: "complete",
+        reason: null,
+        method_tables: 1,
+        header_address: "0x401000",
+        discovery: "signature-heuristic",
+        format_major: 9,
+        format_minor: 1,
+        types: [
+          {
+            address: "0x402000",
+            type: "/NativeAOT/MethodTables/Class_00402000_MT",
+          },
+        ],
+        derived_memory: {
+          address: "0x402000",
+          size_bytes: 64,
+          sha256: "a".repeat(64),
+          file_offset: null,
+        },
+        coverage: {
+          frozen_object_candidates: 1,
+          frozen_objects_annotated: 1,
+          basis: "rehydrated-pointer-candidates-and-committed-instance-types",
+        },
+      },
+    };
+    expect(validateGhidraExtensionResults([extension], [positive])).toBeNull();
+    const incomplete = {
+      ...positive,
+      result: {
+        ...positive.result,
+        coverage: {
+          frozen_object_candidates: 2,
+          frozen_objects_annotated: 1,
+          basis: "rehydrated-pointer-candidates-and-committed-instance-types",
+        },
+      },
+    };
+    expect(
+      validateGhidraExtensionResults([extension], [incomplete]),
+    ).not.toBeNull();
+    expect(
+      validateGhidraExtensionResults(
+        [extension],
+        [
+          {
+            ...incomplete,
+            status: "partial",
+            result: { ...incomplete.result, status: "partial" },
+          },
+        ],
+      ),
+    ).toBeNull();
+    expect(
+      validateGhidraExtensionResults(
+        [extension],
+        [{ ...positive, result: { ...positive.result, discovery: null } }],
+      ),
+    ).not.toBeNull();
+  });
   it("preserves real loader failures without requiring a successful analyzer report", async () => {
     const { extension } = await artifact();
     const reason = "Extension loading/analysis failed: ClassNotFoundException";

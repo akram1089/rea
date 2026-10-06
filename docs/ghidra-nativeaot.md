@@ -56,7 +56,7 @@ For CLI use:
 ```sh
 rea inspect-native-load-image ./NativeAotFixture --provider ghidra --json
 rea inspect-native-data-type ./NativeAotFixture --type /NativeAOT/MethodTables/Class_ADDRESS_MT --provider ghidra --json
-rea analyze-function ./NativeAotFixture 0xADDRESS --provider ghidra --json
+rea function ./NativeAotFixture 0xADDRESS --provider ghidra --json
 ```
 
 No new MCP workflow or approval flag is required. Configuration opts into the

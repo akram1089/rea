@@ -171,7 +171,7 @@ try {
       const addressOf = (name) => {
         const line = symbols
           .split(/\r?\n/u)
-          .find((line) => line.includes(name));
+          .find((line) => line.split(/\s+/u).includes(name));
         assert.ok(line, `Independent symbol missing: ${name}`);
         const match =
           oracle.runtime === "linux-x64"
@@ -180,13 +180,23 @@ try {
         assert.ok(match, `Unrecognized independent symbol line: ${line}`);
         return `0x${(BigInt(`0x${match[1]}`) + bias).toString(16)}`;
       };
-      const fixtureSymbols = oracle.symbols ?? {
-        base: "_ZTV26NativeAotFixture_BaseProbe",
-        derived: "_ZTV29NativeAotFixture_DerivedProbe",
-        interface: "_ZTV23NativeAotFixture_IProbe",
-        compute: "NativeAotFixture_DerivedProbe__Compute",
-        dispatch: "NativeAotFixture_Program__Dispatch",
-      };
+      const fixtureSymbols =
+        oracle.symbols ??
+        (oracle.runtime === "win-x64"
+          ? {
+              base: "??_7NativeAotFixture_BaseProbe@@6B@",
+              derived: "??_7NativeAotFixture_DerivedProbe@@6B@",
+              interface: "??_7NativeAotFixture_IProbe@@6B@",
+              compute: "NativeAotFixture_DerivedProbe__Compute",
+              dispatch: "NativeAotFixture_Program__Dispatch",
+            }
+          : {
+              base: "_ZTV26NativeAotFixture_BaseProbe",
+              derived: "_ZTV29NativeAotFixture_DerivedProbe",
+              interface: "_ZTV23NativeAotFixture_IProbe",
+              compute: "NativeAotFixture_DerivedProbe__Compute",
+              dispatch: "NativeAotFixture_Program__Dispatch",
+            });
       const lookup = (address) => {
         const identity = summary.types.find((type) => type.address === address);
         assert.ok(identity?.type, `Recovered identity missing at ${address}`);

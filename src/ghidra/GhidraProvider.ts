@@ -334,7 +334,7 @@ export class GhidraProvider implements AnalysisProviderCandidate {
           ? new AnalysisCapabilityUnavailableError(
               "ghidra",
               operation,
-              `${failed.id}: ${failed.reason}`,
+              `${failed.id}: ${failed.reason}. Omit REA_GHIDRA_NATIVEAOT_JAR to continue ordinary native analysis.`,
             )
           : new ProviderAdapterError("ghidra", operation, {
               diagnostics: {

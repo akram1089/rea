@@ -58,8 +58,8 @@ Recovery modifies an ephemeral analysis database and may replace loaded metadata
 bytes with derived content. Original executable files remain unchanged. Distinguish
 original file offsets from derived analysis memory. Windows x64 PE **targets**
 can be analyzed on a supported Linux host; Windows **host** P0 does not admit
-this database recovery. See `docs/ghidra-nativeaot.md` for the tested layout and
-optional bring-your-own adapter build.
+this database recovery. See the [NativeAOT guide](https://github.com/morluto/rea/blob/main/docs/ghidra-nativeaot.md)
+for the tested layout and optional bring-your-own adapter build.
 
 ## Packages and extraction
 
