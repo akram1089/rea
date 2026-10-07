@@ -332,6 +332,11 @@ describe("Ghidra platform support", () => {
       status: "unsupported",
       code: "architecture_unsupported",
     });
+    expect(ghidra.inspectTargetSupport(peTarget("x86"))).toMatchObject({
+      status: "unsupported",
+      code: "architecture_unsupported",
+      diagnostics: { host_platform: "win32", architecture: "x86" },
+    });
   });
 });
 

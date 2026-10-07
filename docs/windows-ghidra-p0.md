@@ -28,6 +28,37 @@ state, annotations, other target architectures and formats, and Hopper-only
 operations remain unavailable through this provider. Managed PE/CLI inspection
 uses its separate execution-free provider.
 
+### Targets outside this boundary
+
+`open_binary` identifies a target independently of provider admission. On
+Windows, Ghidra reports why it does not admit an identified target:
+
+| Target                                    | Ghidra rejection code        |
+| ----------------------------------------- | ---------------------------- |
+| Non-executable input                      | `target_kind_unsupported`    |
+| ELF, Mach-O, DOS, or other non-PE format  | `target_format_unsupported`  |
+| 32-bit x86, ARM64, or other non-x86-64 PE | `architecture_unsupported`   |
+| DLL or other non-application PE image     | `target_role_unsupported`    |
+| Managed or unclassified PE image          | `managed_target_unsupported` |
+
+With automatic selection, `open_binary` still succeeds without a bound deep
+provider when no candidate is usable. `binary_session` reports each entry of
+`analysis_provider_candidates` with its `availability` and `target_support`. A
+later deep operation fails with `target_unsupported` only when every candidate
+rejects the target. When another candidate admits the target but is
+unavailable, such as Hopper with `unsupported_host` on Windows, the operation
+reports `provider_unavailable`. An explicit Ghidra selection can instead fail
+`open_binary` with `target_unsupported`. In each case, the error's
+`details.rejections` lists each provider's code, reason, and diagnostics;
+Ghidra's entry identifies the rejected target property.
+
+For these targets, use a provider that admits them. The
+[IDA provider](ida-provider.md) admits executable inputs without an
+architecture restriction; its guide states the verified scope. Ghidra on Linux
+x64 and macOS admits x86, x86-64, ARM, and ARM64 executables, with real PE
+conformance covering x86-64 PE. A 32-bit x86 PE remains outside this Windows
+boundary until its own real workflow is verified.
+
 REA does not install or upgrade Ghidra, Java, Python, npm, Node.js, Hopper, or a
 compiler. The adapter uses the packaged Java `HeadlessScript`; Python and
 PyGhidra are not prerequisites. Users do not build the native addon.
