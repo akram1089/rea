@@ -18,6 +18,8 @@ import { supportedClients, type SetupClient } from "./SupportedClients.js";
 import {
   canonicalSkillNeedsInstall,
   installCanonicalSkill,
+  installSkillForClients,
+  skillNeedsInstallForClients,
 } from "./SetupSkill.js";
 import {
   clientConfigurationAligned,
@@ -143,8 +145,22 @@ export const systemSetupHost = (
             (aligned) => !aligned,
           ),
     inspectClientConfiguration: inspectClientConfiguration,
-    skillNeedsInstall: () => canonicalSkillNeedsInstall(homeDirectory),
-    installSkill: () => installCanonicalSkill(homeDirectory),
+    skillNeedsInstall: async (clients) => {
+      const targetClients =
+        clients ?? (await detectClients(homeDirectory, platform, environment));
+      const clientSkillPaths = targetClients
+        .map((client) => client.skillPath)
+        .filter((path): path is string => path !== undefined);
+      return skillNeedsInstallForClients(homeDirectory, clientSkillPaths);
+    },
+    installSkill: async (clients) => {
+      const targetClients =
+        clients ?? (await detectClients(homeDirectory, platform, environment));
+      const clientSkillPaths = targetClients
+        .map((client) => client.skillPath)
+        .filter((path): path is string => path !== undefined);
+      return installSkillForClients(homeDirectory, clientSkillPaths, platform);
+    },
     doctor: (scope) => runDoctor(undefined, doctorHost, scope),
   };
 };

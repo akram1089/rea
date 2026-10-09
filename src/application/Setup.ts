@@ -70,7 +70,13 @@ export const runSetup = async (
   let skillSelected =
     options.installSkill === true ||
     (options.installSkill !== false && selectedClientIds.length > 0);
-  let installSkill = skillSelected && discovery.skillNeedsInstall;
+  const selectedClientsForSkill = discovery.clients.filter((client) =>
+    selectedClientIds.includes(client.name),
+  );
+  let installSkill =
+    skillSelected &&
+    (discovery.skillNeedsInstall ||
+      (await host.skillNeedsInstall(selectedClientsForSkill)));
   let planDiscovery = discovery;
   if (interactiveSelection) {
     const offerSkillAction =
@@ -125,7 +131,13 @@ export const runSetup = async (
       (selectedActionIds.has("install_skill") &&
         selectedClientIds.length === 0) ||
       (options.installSkill !== false && selectedClientIds.length > 0);
-    installSkill = skillSelected && discovery.skillNeedsInstall;
+    const interactiveSelectedClients = discovery.clients.filter((client) =>
+      selectedClientIds.includes(client.name),
+    );
+    installSkill =
+      skillSelected &&
+      (discovery.skillNeedsInstall ||
+        (await host.skillNeedsInstall(interactiveSelectedClients)));
   }
   const planned = await planSetupActions({
     discovery: planDiscovery,
@@ -239,7 +251,12 @@ export const runSetup = async (
   if (clientFailure !== undefined) return fail(clientFailure);
   if (
     planSelection.installSkill &&
-    !(await installSkillAction(host, options, appliedActions))
+    !(await installSkillAction(
+      host,
+      options,
+      appliedActions,
+      planSelection.selectedClients,
+    ))
   )
     return fail(
       "REA analysis skill could not be installed or verified. Check permissions for `~/.agents/skills`, then rerun setup.",
@@ -330,6 +347,7 @@ const installSkillAction = async (
   host: SetupHost,
   options: SetupOptions,
   appliedActions: string[],
+  selectedClients?: readonly SetupClient[],
 ): Promise<boolean> => {
   const label = "REA reverse-engineering skill";
   emitProgress(options, {
@@ -337,7 +355,7 @@ const installSkillAction = async (
     label,
     state: "started",
   });
-  const skill = await host.installSkill();
+  const skill = await host.installSkill(selectedClients);
   if (skill === "failed") {
     emitProgress(options, {
       actionId: "install_skill",

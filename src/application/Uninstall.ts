@@ -178,7 +178,12 @@ export const systemUninstallHost = (
         : undefined;
     },
     removeClient: (client) => removeClient(client, fileSystem),
-    removeSkill: () => removeManagedSkills(home, fileSystem),
+    removeSkill: () =>
+      removeManagedSkills(
+        home,
+        fileSystem,
+        supportedClients(home, platform, environment),
+      ),
     purgeData: async () => [
       await removeManagedPath(join(home, ".rea/cache"), "cache", fileSystem),
       await removeManagedPath(join(home, ".rea/state"), "state", fileSystem),
@@ -402,12 +407,32 @@ const removeManagedPath = async (
 const removeManagedSkills = async (
   home: string,
   fileSystem: UninstallFileSystem,
-): Promise<UninstallItem> =>
-  removeManagedPath(
+  clients?: readonly SetupClient[],
+): Promise<UninstallItem> => {
+  if (clients !== undefined) {
+    for (const client of clients) {
+      if (client.skillPath !== undefined) {
+        try {
+          await fileSystem.stat(client.skillPath);
+          await fileSystem.remove(client.skillPath);
+        } catch (cause: unknown) {
+          if (!isMissing(cause)) {
+            return item(
+              "skill",
+              "failed",
+              "This item could not be removed. Check file permissions, then rerun uninstall.",
+            );
+          }
+        }
+      }
+    }
+  }
+  return removeManagedPath(
     join(home, ".agents/skills", PRODUCT_IDENTITY.skillName),
     "skill",
     fileSystem,
   );
+};
 
 const item = (
   name: string,

@@ -190,6 +190,7 @@ export const planSetupActions = async (input: {
       installHopper: input.discovery.installHopper,
       installSkill: input.installSkill,
       clients: clientPlans,
+      selectedClients,
       providerEnvironment: input.providerEnvironment,
       ...(input.discovery.linuxPackageFamily === undefined
         ? {}
@@ -214,6 +215,7 @@ const setupPlan = (input: {
     readonly operation: "create" | "update";
     readonly backupPath?: string;
   }[];
+  readonly selectedClients?: readonly SetupClient[];
   readonly providerEnvironment: SetupProviderEnvironment;
   readonly linuxPackageFamily?: LinuxPackageFamily;
   readonly command: readonly string[];
@@ -276,14 +278,22 @@ const setupPlan = (input: {
             ".agents/skills",
             PRODUCT_IDENTITY.skillName,
           ),
-          detail:
-            "Install or update the bundled REA reverse-engineering skill and on-demand references.",
+          detail: skillDetail(
+            input.selectedClients ?? input.clients.map(({ client }) => client),
+          ),
           external: false,
           operation: "install" as const,
         },
       ]
     : []),
 ];
+
+const skillDetail = (clients: readonly SetupClient[]): string => {
+  const claudeCode = clients.some(({ name }) => name === "claude_code");
+  return claudeCode
+    ? "Install or update the bundled REA reverse-engineering skill and on-demand references, and link into Claude Code's skills directory."
+    : "Install or update the bundled REA reverse-engineering skill and on-demand references.";
+};
 
 const linuxDisclosure = (family: LinuxPackageFamily) => {
   const disclosure = linuxHopperInstallDisclosure(

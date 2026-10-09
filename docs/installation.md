@@ -139,6 +139,15 @@ listed after the table because its connector is not one of these files:
 | Grok Build         | `grok_build`     |
 | OMP                | `omp`            |
 
+For Claude Code, setup writes the MCP registration to `.claude.json` in the user's
+Claude Code configuration directory (`$CLAUDE_CONFIG_DIR`, or `~` when unset). Because
+Claude Code reads personal skills from its skills directory rather than
+`~/.agents/skills`, setup also links the managed skill from
+`~/.agents/skills/reverse-engineer-anything` into Claude Code's personal skills directory
+(`~/.claude/skills/reverse-engineer-anything`, or
+`$CLAUDE_CONFIG_DIR/skills/reverse-engineer-anything`), falling back to a direct copy if
+symlinking is unavailable.
+
 For OMP, setup writes a `type: "stdio"` entry to the user-level
 `~/.omp/agent/mcp.json`. It follows `PI_CONFIG_DIR`, an absolute
 `PI_CODING_AGENT_DIR`, and the profile selected by `OMP_PROFILE` or

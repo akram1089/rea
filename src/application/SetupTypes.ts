@@ -65,8 +65,10 @@ export interface SetupHost {
     providerEnvironment: SetupProviderEnvironment,
     command: readonly string[],
   ): Promise<ClientConfigurationInspection>;
-  skillNeedsInstall(): Promise<boolean>;
-  installSkill(): Promise<"installed" | "unchanged" | "failed">;
+  skillNeedsInstall(clients?: readonly SetupClient[]): Promise<boolean>;
+  installSkill(
+    clients?: readonly SetupClient[],
+  ): Promise<"installed" | "unchanged" | "failed">;
   doctor(scope?: DoctorScope): Promise<Awaited<ReturnType<typeof runDoctor>>>;
 }
 /** Structured setup outcome carrying remediation instead of prompting. */

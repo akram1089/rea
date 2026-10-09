@@ -1,12 +1,15 @@
 import { isAbsolute, join } from "node:path";
 import { lstatSync } from "node:fs";
 
+import { PRODUCT_IDENTITY } from "../identity.js";
+
 /** One supported client configuration location. */
 export interface SetupClient {
   readonly name: string;
   readonly displayName?: string;
   readonly configPath: string;
   readonly markerPath?: string;
+  readonly skillPath?: string;
   readonly format?:
     | "json"
     | "toml"
@@ -45,6 +48,7 @@ interface ClientDefinition {
   readonly displayName: string;
   readonly configPath: ClientPath;
   readonly markerPath: ClientPath;
+  readonly skillPath?: ClientPath;
   readonly format: NonNullable<SetupClient["format"]>;
 }
 
@@ -195,6 +199,12 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
     configPath: (context: ClientPathContext) =>
       join(claudeCodeConfigDirectory(context), ".claude.json"),
     markerPath: claudeCodeMarkerDirectory,
+    skillPath: (context: ClientPathContext) =>
+      join(
+        claudeCodeMarkerDirectory(context),
+        "skills",
+        PRODUCT_IDENTITY.skillName,
+      ),
     format: "json",
   },
   {
@@ -333,6 +343,9 @@ export const supportedClients = (
     displayName: definition.displayName,
     configPath: resolvePath(definition.configPath, context),
     markerPath: resolvePath(definition.markerPath, context),
+    ...("skillPath" in definition && definition.skillPath !== undefined
+      ? { skillPath: resolvePath(definition.skillPath, context) }
+      : {}),
     format: definition.format,
   }));
 };
