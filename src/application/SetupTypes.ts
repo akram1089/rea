@@ -42,6 +42,7 @@ export type ClientConfigurationInspection =
 export interface SetupHost {
   readonly platform: NodeJS.Platform;
   readonly homeDirectory: string;
+  readonly claudeCodeSkillsDirectory: string;
   readonly registrationCommand: readonly string[];
   readonly nodeVersion: string;
   macosVersion(): Promise<string | undefined>;
@@ -65,9 +66,9 @@ export interface SetupHost {
     providerEnvironment: SetupProviderEnvironment,
     command: readonly string[],
   ): Promise<ClientConfigurationInspection>;
-  skillNeedsInstall(clients?: readonly SetupClient[]): Promise<boolean>;
+  skillNeedsInstall(clientIds: readonly string[]): Promise<boolean>;
   installSkill(
-    clients?: readonly SetupClient[],
+    clientIds: readonly string[],
   ): Promise<"installed" | "unchanged" | "failed">;
   doctor(scope?: DoctorScope): Promise<Awaited<ReturnType<typeof runDoctor>>>;
 }

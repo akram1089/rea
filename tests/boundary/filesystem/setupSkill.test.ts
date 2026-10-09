@@ -1,35 +1,151 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 import {
   canonicalSkillNeedsInstall,
-  canonicalSkillRoot,
+  claudeCodeSkillsDirectory,
   installCanonicalSkill,
-  installSkillForClients,
-  isClientSkillAligned,
-  linkOrInstallClientSkill,
-  skillNeedsInstallForClients,
 } from "../../../src/application/SetupSkill.js";
 import {
   runDoctor,
   systemDoctorHost,
 } from "../../../src/application/Doctor.js";
 import { createDoctorHostFixture } from "../../../src/application/Doctor.fixture.js";
-import { runSetup } from "../../../src/application/Setup.js";
-import { systemSetupHost } from "../../../src/application/SetupHost.js";
-import { supportedClients } from "../../../src/application/SupportedClients.js";
-import {
-  runUninstall,
-  systemUninstallHost,
-} from "../../../src/application/Uninstall.js";
-import { options } from "../../../src/application/Setup.fixture.js";
 import { TOOL_CONTRACTS } from "../../../src/contracts/toolContracts.js";
 import { PRODUCT_IDENTITY } from "../../../src/identity.js";
 import { z } from "zod";
 import { skillReferenceIssues } from "../../../scripts/lib/docs-facts.mjs";
+
+describe("canonical skill transaction", () => {
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "preserves an unreadable existing skill instead of treating it as absent",
+    async () => {
+      const home = await createTestTempDirectory("rea-skill-unreadable-");
+      const destination = join(
+        home,
+        ".agents/skills/reverse-engineer-anything/SKILL.md",
+      );
+      const original = "existing private skill bytes\n";
+      await mkdir(dirname(destination), { recursive: true });
+      await writeFile(destination, original, { mode: 0o200 });
+      try {
+        await chmod(destination, 0o200);
+        expect(await installCanonicalSkill(home)).toBe("failed");
+      } finally {
+        await chmod(destination, 0o600);
+      }
+      expect(await readFile(destination, "utf8")).toBe(original);
+      await expect(
+        readFile(`${destination}.rea.backup`, "utf8"),
+      ).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    },
+  );
+
+  it("installs only the selected Claude Code personal skill", async () => {
+    const home = await createTestTempDirectory("rea-claude-skill-");
+    const configDirectory = join(home, "claude-config");
+    const skillsDirectory = claudeCodeSkillsDirectory(home, {
+      CLAUDE_CONFIG_DIR: configDirectory,
+    });
+    const claudeSkill = join(
+      skillsDirectory,
+      "reverse-engineer-anything/SKILL.md",
+    );
+    await mkdir(configDirectory, { recursive: true });
+    await writeFile(
+      join(configDirectory, ".claude.json"),
+      JSON.stringify({
+        mcpServers: {
+          rea: {
+            command: "npx",
+            args: ["-y", PRODUCT_IDENTITY.registrationPackageSpecifier, "mcp"],
+          },
+        },
+      }),
+    );
+    const host = systemDoctorHost({
+      environment: {
+        HOME: home,
+        USERPROFILE: home,
+        CLAUDE_CONFIG_DIR: configDirectory,
+      },
+    });
+
+    expect(
+      await canonicalSkillNeedsInstall(home, ["claude_code"], skillsDirectory),
+    ).toBe(true);
+    expect(
+      await installCanonicalSkill(home, ["claude_code"], skillsDirectory),
+    ).toBe("installed");
+    expect(
+      await canonicalSkillNeedsInstall(home, ["claude_code"], skillsDirectory),
+    ).toBe(false);
+    await expect(access(claudeSkill)).resolves.toBeUndefined();
+    await expect(
+      access(join(home, ".agents/skills/reverse-engineer-anything")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(
+      (
+        await runDoctor(undefined, host, {
+          clients: ["claude_code"],
+          skill: true,
+        })
+      ).identity?.skill.state,
+    ).toBe("aligned");
+  });
+
+  it("checks selected skill locations for independent drift", async () => {
+    const home = await createTestTempDirectory("rea-mixed-skill-");
+    const sharedSkill = join(
+      home,
+      ".agents/skills/reverse-engineer-anything/SKILL.md",
+    );
+    const claudeSkills = claudeCodeSkillsDirectory(home);
+    const claudeSkill = join(
+      claudeSkills,
+      "reverse-engineer-anything/SKILL.md",
+    );
+    const host = systemDoctorHost({
+      environment: { HOME: home, USERPROFILE: home },
+    });
+    const doctorScope = { clients: ["claude_code", "codex"], skill: true };
+
+    expect(await installCanonicalSkill(home, ["claude_code", "codex"])).toBe(
+      "installed",
+    );
+    await rm(sharedSkill);
+    expect(
+      (await runDoctor(undefined, host, doctorScope)).identity?.skill.state,
+    ).toBe("stale");
+    expect(await installCanonicalSkill(home, ["claude_code", "codex"])).toBe(
+      "installed",
+    );
+    for (const skill of [sharedSkill, claudeSkill]) {
+      await writeFile(skill, "selected copy changed\n");
+      expect(
+        (await runDoctor(undefined, host, doctorScope)).identity?.skill.state,
+      ).toBe("stale");
+      expect(await installCanonicalSkill(home, ["claude_code", "codex"])).toBe(
+        "installed",
+      );
+      expect(
+        (await runDoctor(undefined, host, doctorScope)).identity?.skill.state,
+      ).toBe("aligned");
+    }
+  });
+});
 
 describe("canonical skill transaction", () => {
   it("backs up and upgrades a stale managed skill without touching siblings", async () => {
@@ -103,7 +219,6 @@ describe("canonical skill transaction", () => {
     expect(installedSkill).toContain(
       `tool_count: ${String(TOOL_CONTRACTS.length)}`,
     );
-    expect(installedSkill).not.toContain("catalog_digest:");
     expect(await readFile(sibling, "utf8")).toBe("unrelated skill\n");
     expect(
       await readFile(
@@ -173,8 +288,9 @@ it("doctor verifies installed instructions and references even when metadata is 
     environment: { HOME: home, USERPROFILE: home },
   });
   const host = createDoctorHostFixture({
-    installedSkillIdentity: () =>
-      system.installedSkillIdentity?.() ?? Promise.resolve(undefined),
+    installedSkillIdentity: (registrations) =>
+      system.installedSkillIdentity?.(registrations) ??
+      Promise.resolve(undefined),
   });
   expect((await runDoctor(undefined, host)).identity?.skill.state).toBe(
     "missing",
@@ -182,24 +298,14 @@ it("doctor verifies installed instructions and references even when metadata is 
   expect(await installCanonicalSkill(home)).toBe("installed");
   expect((await runDoctor(undefined, host)).identity?.skill).toMatchObject({
     state: "aligned",
-    installed_catalog_digest: null,
   });
-  const legacyDigest = "0".repeat(64);
-  await writeFile(
-    destination,
-    (await readFile(destination, "utf8")).replace(
-      `  tool_count: ${String(TOOL_CONTRACTS.length)}`,
-      `  tool_count: ${String(TOOL_CONTRACTS.length)}\n  catalog_digest: "${legacyDigest}"`,
-    ),
-  );
-  expect((await runDoctor(undefined, host)).identity?.skill).toMatchObject({
-    state: "stale",
-    installed_catalog_digest: legacyDigest,
-  });
-  expect(await installCanonicalSkill(home)).toBe("installed");
-  for (const path of [destination, reference]) {
-    const canonical = await readFile(path, "utf8");
-    await writeFile(path, `${canonical}\nLocally changed instructions.\n`);
+  for (const [path, remove] of [
+    [destination, false],
+    [reference, false],
+    [reference, true],
+  ] as const) {
+    if (remove) await rm(path);
+    else await writeFile(path, "Locally changed instructions.\n");
     expect((await runDoctor(undefined, host)).identity?.skill.state).toBe(
       "stale",
     );
@@ -208,157 +314,4 @@ it("doctor verifies installed instructions and references even when metadata is 
       "aligned",
     );
   }
-  await rm(reference);
-  expect((await runDoctor(undefined, host)).identity?.skill.state).toBe(
-    "stale",
-  );
-  expect(await installCanonicalSkill(home)).toBe("installed");
-  expect((await runDoctor(undefined, host)).identity?.skill.state).toBe(
-    "aligned",
-  );
-});
-
-describe("client skill linking and lifecycle", () => {
-  it("installs canonical skill and links into Claude Code personal skill location", async () => {
-    const home = await createTestTempDirectory("rea-claude-skill-");
-    const claudeSkill = join(
-      home,
-      ".claude/skills",
-      PRODUCT_IDENTITY.skillName,
-    );
-    expect(await skillNeedsInstallForClients(home, [claudeSkill])).toBe(true);
-    expect(await installSkillForClients(home, [claudeSkill])).toBe("installed");
-
-    const canonicalRoot = canonicalSkillRoot(home);
-    expect(await readFile(join(canonicalRoot, "SKILL.md"), "utf8")).toContain(
-      PRODUCT_IDENTITY.skillName,
-    );
-    expect(await readFile(join(claudeSkill, "SKILL.md"), "utf8")).toContain(
-      PRODUCT_IDENTITY.skillName,
-    );
-
-    expect(await isClientSkillAligned(canonicalRoot, claudeSkill)).toBe(true);
-    expect(await skillNeedsInstallForClients(home, [claudeSkill])).toBe(false);
-    expect(await installSkillForClients(home, [claudeSkill])).toBe("unchanged");
-  });
-
-  it("repairs a broken or pointing-elsewhere client skill link", async () => {
-    const home = await createTestTempDirectory("rea-claude-repair-");
-    const claudeSkill = join(
-      home,
-      ".claude/skills",
-      PRODUCT_IDENTITY.skillName,
-    );
-    const otherDir = join(home, "other-directory");
-    await mkdir(otherDir, { recursive: true });
-    await mkdir(dirname(claudeSkill), { recursive: true });
-    const { symlink } = await import("node:fs/promises");
-    await symlink(
-      otherDir,
-      claudeSkill,
-      process.platform === "win32" ? "junction" : "dir",
-    );
-
-    const canonicalRoot = canonicalSkillRoot(home);
-    expect(await isClientSkillAligned(canonicalRoot, claudeSkill)).toBe(false);
-    expect(await installSkillForClients(home, [claudeSkill])).toBe("installed");
-    expect(await isClientSkillAligned(canonicalRoot, claudeSkill)).toBe(true);
-    expect(await readFile(join(claudeSkill, "SKILL.md"), "utf8")).toContain(
-      PRODUCT_IDENTITY.skillName,
-    );
-  });
-
-  it("updates an existing directory with skill files when symlinking is not used", async () => {
-    const home = await createTestTempDirectory("rea-claude-dir-");
-    const canonical = canonicalSkillRoot(home);
-    await installCanonicalSkill(home);
-
-    const claudeSkill = join(
-      home,
-      ".claude/skills",
-      PRODUCT_IDENTITY.skillName,
-    );
-    await mkdir(claudeSkill, { recursive: true });
-    await writeFile(join(claudeSkill, "SKILL.md"), "stale claude skill\n");
-
-    expect(await isClientSkillAligned(canonical, claudeSkill)).toBe(false);
-    expect(await linkOrInstallClientSkill(canonical, claudeSkill)).toBe(
-      "installed",
-    );
-    expect(
-      await readFile(`${join(claudeSkill, "SKILL.md")}.rea.backup`, "utf8"),
-    ).toBe("stale claude skill\n");
-    expect(await isClientSkillAligned(canonical, claudeSkill)).toBe(true);
-  });
-
-  it("discloses Claude Code skill linking in setup plan and uninstalls cleanly", async () => {
-    const home = await createTestTempDirectory("rea-claude-setup-");
-    const clients = supportedClients(home);
-    const client = clients.find(({ name }) => name === "claude_code");
-    expect(client?.skillPath).toBe(
-      join(home, ".claude/skills", PRODUCT_IDENTITY.skillName),
-    );
-
-    const doctorHost = {
-      ...systemDoctorHost({ environment: { HOME: home, USERPROFILE: home } }),
-      nodeVersion: "24.18.0",
-    };
-    const host = {
-      ...systemSetupHost(doctorHost, { HOME: home, USERPROFILE: home }),
-      nodeVersion: "24.18.0",
-    };
-    const plan = await runSetup(
-      {
-        ...options(true),
-        clientIds: ["claude_code"],
-        dryRun: true,
-      },
-      host,
-    );
-    const skillAction = plan.plannedActions.find(
-      ({ id }) => id === "install_skill",
-    );
-    expect(skillAction).toBeDefined();
-    expect(skillAction?.detail).toContain(
-      "link into Claude Code's skills directory",
-    );
-
-    const result = await runSetup(
-      {
-        ...options(true),
-        clientIds: ["claude_code"],
-      },
-      host,
-    );
-    expect(result.status).toBe("ready");
-    expect(
-      await readFile(join(client!.skillPath!, "SKILL.md"), "utf8"),
-    ).toContain(PRODUCT_IDENTITY.skillName);
-
-    const uninstalled = await runUninstall(
-      false,
-      systemUninstallHost(home, undefined, { HOME: home, USERPROFILE: home }),
-    );
-    expect(uninstalled.status).toBe("complete");
-    await expect(
-      readFile(join(client!.skillPath!, "SKILL.md"), "utf8"),
-    ).rejects.toThrow();
-    await expect(
-      readFile(join(canonicalSkillRoot(home), "SKILL.md"), "utf8"),
-    ).rejects.toThrow();
-  });
-
-  it("respects CLAUDE_CONFIG_DIR environment override", () => {
-    const customClaudeDir = join("/custom", "my-claude");
-    const clients = supportedClients("/home/user", "linux", {
-      CLAUDE_CONFIG_DIR: customClaudeDir,
-    });
-    const claudeClient = clients.find(({ name }) => name === "claude_code");
-    expect(claudeClient?.configPath).toBe(
-      join(customClaudeDir, ".claude.json"),
-    );
-    expect(claudeClient?.skillPath).toBe(
-      join(customClaudeDir, "skills", PRODUCT_IDENTITY.skillName),
-    );
-  });
 });

@@ -67,26 +67,31 @@ export const runSetup = async (
     : (options.clientIds ??
       options.readinessScope?.clients ??
       discovery.defaultClientIds);
+  let skillNeedsInstall = await host.skillNeedsInstall(selectedClientIds);
   let skillSelected =
     options.installSkill === true ||
     (options.installSkill !== false && selectedClientIds.length > 0);
-  const selectedClientsForSkill = discovery.clients.filter((client) =>
-    selectedClientIds.includes(client.name),
-  );
-  let installSkill =
-    skillSelected &&
-    (discovery.skillNeedsInstall ||
-      (await host.skillNeedsInstall(selectedClientsForSkill)));
+  let installSkill = skillSelected && skillNeedsInstall;
   let planDiscovery = discovery;
   if (interactiveSelection) {
+    const selectionSkillClientIds = [
+      ...new Set([
+        ...discovery.defaultClientIds,
+        ...discovery.detectedClientIds,
+      ]),
+    ];
+    const selectionSkillNeedsInstall = await host.skillNeedsInstall(
+      selectionSkillClientIds,
+    );
     const offerSkillAction =
-      options.installSkill !== false && discovery.skillNeedsInstall;
+      options.installSkill !== false && selectionSkillNeedsInstall;
     const selectionActions = await planSetupActions({
       discovery,
       host,
       providerEnvironment,
       command: host.registrationCommand,
       clientIds: [],
+      skillClientIds: selectionSkillClientIds,
       installSkill: offerSkillAction,
     });
     const decision = await confirm(selectionActions.plannedActions, {
@@ -117,6 +122,7 @@ export const runSetup = async (
     selectedClientIds = [...selectedActionIds]
       .filter((id) => id.startsWith("configure_client:"))
       .map((id) => id.slice("configure_client:".length));
+    skillNeedsInstall = await host.skillNeedsInstall(selectedClientIds);
     const proposedInstallAction = selectionActions.plannedActions.some(
       ({ id }) => id === "install_hopper",
     );
@@ -131,13 +137,7 @@ export const runSetup = async (
       (selectedActionIds.has("install_skill") &&
         selectedClientIds.length === 0) ||
       (options.installSkill !== false && selectedClientIds.length > 0);
-    const interactiveSelectedClients = discovery.clients.filter((client) =>
-      selectedClientIds.includes(client.name),
-    );
-    installSkill =
-      skillSelected &&
-      (discovery.skillNeedsInstall ||
-        (await host.skillNeedsInstall(interactiveSelectedClients)));
+    installSkill = skillSelected && skillNeedsInstall;
   }
   const planned = await planSetupActions({
     discovery: planDiscovery,
@@ -145,6 +145,7 @@ export const runSetup = async (
     providerEnvironment,
     command: host.registrationCommand,
     clientIds: selectedClientIds,
+    skillClientIds: selectedClientIds,
     installSkill,
   });
   plannedActions = planned.plannedActions;
@@ -255,11 +256,11 @@ export const runSetup = async (
       host,
       options,
       appliedActions,
-      planSelection.selectedClients,
+      selectedClientIds,
     ))
   )
     return fail(
-      "REA analysis skill could not be installed or verified. Check permissions for `~/.agents/skills`, then rerun setup.",
+      "REA analysis skill could not be installed or verified. Check permissions for its planned skill directories, then rerun setup.",
     );
   const doctor = summarizeDoctor(await host.doctor(readinessScope));
   const remediation = combineRemediation(
@@ -347,7 +348,7 @@ const installSkillAction = async (
   host: SetupHost,
   options: SetupOptions,
   appliedActions: string[],
-  selectedClients?: readonly SetupClient[],
+  skillClientIds: readonly string[],
 ): Promise<boolean> => {
   const label = "REA reverse-engineering skill";
   emitProgress(options, {
@@ -355,7 +356,7 @@ const installSkillAction = async (
     label,
     state: "started",
   });
-  const skill = await host.installSkill(selectedClients);
+  const skill = await host.installSkill(skillClientIds);
   if (skill === "failed") {
     emitProgress(options, {
       actionId: "install_skill",

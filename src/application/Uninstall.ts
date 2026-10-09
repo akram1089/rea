@@ -15,6 +15,7 @@ import writeFileAtomic from "write-file-atomic";
 import { z } from "zod";
 
 import { PRODUCT_IDENTITY } from "../identity.js";
+import { claudeCodeSkillsDirectory, skillDestinations } from "./SetupSkill.js";
 import { isOwnedClientRegistrationCommand } from "./ClientRegistrationIdentity.js";
 import { resolveClientConfigTransactionPath } from "./ClientConfigPath.js";
 import {
@@ -178,12 +179,7 @@ export const systemUninstallHost = (
         : undefined;
     },
     removeClient: (client) => removeClient(client, fileSystem),
-    removeSkill: () =>
-      removeManagedSkills(
-        home,
-        fileSystem,
-        supportedClients(home, platform, environment),
-      ),
+    removeSkill: () => removeManagedSkills(home, fileSystem, environment),
     purgeData: async () => [
       await removeManagedPath(join(home, ".rea/cache"), "cache", fileSystem),
       await removeManagedPath(join(home, ".rea/state"), "state", fileSystem),
@@ -407,30 +403,46 @@ const removeManagedPath = async (
 const removeManagedSkills = async (
   home: string,
   fileSystem: UninstallFileSystem,
-  clients?: readonly SetupClient[],
+  environment: Readonly<NodeJS.ProcessEnv>,
 ): Promise<UninstallItem> => {
-  if (clients !== undefined) {
-    for (const client of clients) {
-      if (client.skillPath !== undefined) {
-        try {
-          await fileSystem.stat(client.skillPath);
-          await fileSystem.remove(client.skillPath);
-        } catch (cause: unknown) {
-          if (!isMissing(cause)) {
-            return item(
-              "skill",
-              "failed",
-              "This item could not be removed. Check file permissions, then rerun uninstall.",
-            );
-          }
-        }
-      }
-    }
-  }
-  return removeManagedPath(
-    join(home, ".agents/skills", PRODUCT_IDENTITY.skillName),
+  const results = await Promise.all(
+    skillDestinations(
+      home,
+      undefined,
+      claudeCodeSkillsDirectory(home, environment),
+    ).map(({ client, path }) =>
+      removeManagedPath(
+        path,
+        client === "claude_code" ? "Claude Code skill" : "skill",
+        fileSystem,
+      ),
+    ),
+  );
+  const failed = results.find(({ status }) => status === "failed");
+  if (failed !== undefined)
+    return item(
+      "skill",
+      "failed",
+      results
+        .map(({ name, status, detail }) => `${name}: ${status} (${detail})`)
+        .join(" "),
+    );
+  const status = results.some(
+    ({ status: resultStatus }) => resultStatus === "removed",
+  )
+    ? "removed"
+    : results.some(({ status: resultStatus }) => resultStatus === "retained")
+      ? "retained"
+      : "skipped";
+  return item(
     "skill",
-    fileSystem,
+    status,
+    results
+      .map(
+        ({ name, status: resultStatus, detail }) =>
+          `${name}: ${resultStatus} (${detail})`,
+      )
+      .join(" "),
   );
 };
 

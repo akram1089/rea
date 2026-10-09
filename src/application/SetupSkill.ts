@@ -1,13 +1,5 @@
-import {
-  lstat,
-  mkdir,
-  readFile,
-  readlink,
-  realpath,
-  rm,
-  symlink,
-} from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { mkdir, readFile, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import writeFileAtomic from "write-file-atomic";
 
 import { PRODUCT_IDENTITY } from "../identity.js";
@@ -27,9 +19,57 @@ interface CanonicalSkillFile {
   readonly original: string | undefined;
 }
 
-/** Root directory of the canonical REA skill bundle. */
-export const canonicalSkillRoot = (home: string): string =>
-  join(home, ".agents/skills", PRODUCT_IDENTITY.skillName);
+/** Managed skill location selected for a client family. */
+export interface SkillDestination {
+  readonly client: "shared" | "claude_code";
+  readonly path: string;
+}
+
+/** Metadata and byte alignment observed in selected skill installations. */
+export interface InstalledSkillIdentity {
+  readonly version: string | null;
+  readonly toolCount: number | null;
+  readonly canonical: boolean;
+}
+
+/** Resolve Claude Code personal skills from the selected environment. */
+export const claudeCodeSkillsDirectory = (
+  home: string,
+  environment: { readonly CLAUDE_CONFIG_DIR?: string } = {},
+): string =>
+  join(environment.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), "skills");
+
+/** Resolve the skill roots required by a client selection, or all owned roots. */
+export const skillDestinations = (
+  home: string,
+  clientIds: readonly string[] | undefined,
+  claudeSkillsDirectory = claudeCodeSkillsDirectory(home),
+): readonly SkillDestination[] => {
+  const includeClaude =
+    clientIds === undefined || clientIds.includes("claude_code");
+  const includeShared =
+    clientIds === undefined ||
+    clientIds.length === 0 ||
+    clientIds.some((clientId) => clientId !== "claude_code");
+  return [
+    ...(includeShared
+      ? [
+          {
+            client: "shared" as const,
+            path: join(home, ".agents/skills", PRODUCT_IDENTITY.skillName),
+          },
+        ]
+      : []),
+    ...(includeClaude
+      ? [
+          {
+            client: "claude_code" as const,
+            path: join(claudeSkillsDirectory, PRODUCT_IDENTITY.skillName),
+          },
+        ]
+      : []),
+  ];
+};
 
 const readOptionalText = async (path: string): Promise<string | undefined> => {
   try {
@@ -43,94 +83,44 @@ const readOptionalText = async (path: string): Promise<string | undefined> => {
 
 const canonicalSkillFiles = async (
   home: string,
+  clientIds: readonly string[],
+  claudeSkillsDirectory?: string,
 ): Promise<readonly CanonicalSkillFile[]> =>
   Promise.all(
-    SKILL_FILES.map(async (relativePath) => {
-      const destination = join(canonicalSkillRoot(home), relativePath);
-      return {
-        destination,
-        content: await readFile(
-          new URL(
-            `../../skills/${PRODUCT_IDENTITY.skillName}/${relativePath}`,
-            import.meta.url,
-          ),
-          "utf8",
-        ),
-        original: await readOptionalText(destination),
-      };
-    }),
+    skillDestinations(home, clientIds, claudeSkillsDirectory).flatMap(
+      ({ path: root }) =>
+        SKILL_FILES.map(async (relativePath) => {
+          const destination = join(root, relativePath);
+          return {
+            destination,
+            content: await readFile(
+              new URL(
+                `../../skills/${PRODUCT_IDENTITY.skillName}/${relativePath}`,
+                import.meta.url,
+              ),
+              "utf8",
+            ),
+            original: await readOptionalText(destination),
+          };
+        }),
+    ),
   );
 
 /** Report whether setup would change any file in the managed REA skill bundle. */
 export const canonicalSkillNeedsInstall = async (
   home: string,
+  clientIds: readonly string[] = [],
+  claudeSkillsDirectory?: string,
 ): Promise<boolean> => {
   try {
-    return (await canonicalSkillFiles(home)).some(
-      ({ content, original }) => original !== content,
-    );
+    return (
+      await canonicalSkillFiles(home, clientIds, claudeSkillsDirectory)
+    ).some(({ content, original }) => original !== content);
   } catch (cause: unknown) {
     // Unreadable skill state fails open to install so setup can repair it.
     void cause;
     return true;
   }
-};
-
-/** Verify whether a client-specific skill location links to or matches the canonical bundle. */
-export const isClientSkillAligned = async (
-  canonicalRoot: string,
-  clientSkillPath: string,
-): Promise<boolean> => {
-  try {
-    const stats = await lstat(clientSkillPath);
-    if (stats.isSymbolicLink()) {
-      try {
-        const target = await readlink(clientSkillPath);
-        const resolvedTarget = resolve(dirname(clientSkillPath), target);
-        if (resolvedTarget === canonicalRoot) return true;
-        const [realCanonical, realClient] = await Promise.all([
-          realpath(canonicalRoot),
-          realpath(clientSkillPath),
-        ]);
-        return realCanonical === realClient;
-      } catch {
-        return false;
-      }
-    }
-    if (stats.isDirectory()) {
-      for (const relativePath of SKILL_FILES) {
-        const clientFile = join(clientSkillPath, relativePath);
-        const canonicalFile = join(canonicalRoot, relativePath);
-        const [clientContent, canonicalContent] = await Promise.all([
-          readOptionalText(clientFile),
-          readOptionalText(canonicalFile),
-        ]);
-        if (clientContent === undefined || clientContent !== canonicalContent) {
-          return false;
-        }
-      }
-      return true;
-    }
-    return false;
-  } catch (cause: unknown) {
-    void cause;
-    return false;
-  }
-};
-
-/** Report whether canonical or any client-specific skill location needs installation. */
-export const skillNeedsInstallForClients = async (
-  home: string,
-  clientSkillPaths: readonly string[],
-): Promise<boolean> => {
-  if (await canonicalSkillNeedsInstall(home)) return true;
-  const canonicalRoot = canonicalSkillRoot(home);
-  for (const clientPath of clientSkillPaths) {
-    if (!(await isClientSkillAligned(canonicalRoot, clientPath))) {
-      return true;
-    }
-  }
-  return false;
 };
 
 const writeText = (path: string, content: string): Promise<void> =>
@@ -145,72 +135,19 @@ const restoreSkillFiles = async (
   }
 };
 
-const copySkillBundle = async (
-  canonicalRoot: string,
-  destinationRoot: string,
-): Promise<void> => {
-  for (const relativePath of SKILL_FILES) {
-    const src = join(canonicalRoot, relativePath);
-    const dest = join(destinationRoot, relativePath);
-    const content = await readFile(src, "utf8");
-    const original = await readOptionalText(dest);
-    if (original !== content) {
-      await mkdir(dirname(dest), { recursive: true });
-      if (original !== undefined) {
-        await writeText(`${dest}.rea.backup`, original);
-      }
-      await writeText(dest, content);
-      if ((await readFile(dest, "utf8")) !== content) {
-        throw new Error(`skill readback mismatch: ${dest}`);
-      }
-    }
-  }
-};
-
-/** Link the canonical skill into a client-specific skill folder, falling back to a direct copy. */
-export const linkOrInstallClientSkill = async (
-  canonicalRoot: string,
-  clientSkillPath: string,
-  platform: NodeJS.Platform = process.platform,
-): Promise<"installed" | "unchanged" | "failed"> => {
-  try {
-    if (await isClientSkillAligned(canonicalRoot, clientSkillPath)) {
-      return "unchanged";
-    }
-    await mkdir(dirname(clientSkillPath), { recursive: true });
-    try {
-      const stats = await lstat(clientSkillPath);
-      if (stats.isSymbolicLink()) {
-        await rm(clientSkillPath, { force: true });
-      }
-    } catch (cause: unknown) {
-      if (
-        !(cause instanceof Error && "code" in cause && cause.code === "ENOENT")
-      ) {
-        throw cause;
-      }
-    }
-    const symlinkType = platform === "win32" ? "junction" : "dir";
-    try {
-      await symlink(canonicalRoot, clientSkillPath, symlinkType);
-      return "installed";
-    } catch {
-      await copySkillBundle(canonicalRoot, clientSkillPath);
-      return "installed";
-    }
-  } catch (cause: unknown) {
-    void cause;
-    return "failed";
-  }
-};
-
 /** Transactionally install or upgrade the canonical REA skill and references. */
 export const installCanonicalSkill = async (
   home: string,
+  clientIds: readonly string[] = [],
+  claudeSkillsDirectory?: string,
 ): Promise<"installed" | "unchanged" | "failed"> => {
   let changed: readonly CanonicalSkillFile[] = [];
   try {
-    const canonical = await canonicalSkillFiles(home);
+    const canonical = await canonicalSkillFiles(
+      home,
+      clientIds,
+      claudeSkillsDirectory,
+    );
     changed = canonical.filter(({ content, original }) => original !== content);
     if (changed.length === 0) return "unchanged";
 
@@ -238,27 +175,36 @@ export const installCanonicalSkill = async (
   }
 };
 
-/** Install canonical skill and link/install for any client skill locations. */
-export const installSkillForClients = async (
+/** Read installed skill metadata and compare every managed location. */
+export const readInstalledSkillIdentity = async (
   home: string,
-  clientSkillPaths: readonly string[],
-  platform: NodeJS.Platform = process.platform,
-): Promise<"installed" | "unchanged" | "failed"> => {
-  const canonicalResult = await installCanonicalSkill(home);
-  if (canonicalResult === "failed") return "failed";
-
-  const canonicalRoot = canonicalSkillRoot(home);
-  let anyInstalled = canonicalResult === "installed";
-
-  for (const clientPath of clientSkillPaths) {
-    const clientResult = await linkOrInstallClientSkill(
-      canonicalRoot,
-      clientPath,
-      platform,
-    );
-    if (clientResult === "failed") return "failed";
-    if (clientResult === "installed") anyInstalled = true;
+  clientIds: readonly string[],
+  claudeSkillsDirectory?: string,
+): Promise<InstalledSkillIdentity | undefined> => {
+  const destinations = skillDestinations(
+    home,
+    clientIds,
+    claudeSkillsDirectory,
+  );
+  let content: string | undefined;
+  for (const destination of destinations) {
+    try {
+      content = await readFile(join(destination.path, "SKILL.md"), "utf8");
+      break;
+    } catch {
+      // Another selected copy may provide metadata; canonical validation below
+      // still marks missing or unreadable copies as stale.
+    }
   }
-
-  return anyInstalled ? "installed" : "unchanged";
+  if (content === undefined) return undefined;
+  const toolCount = /^\s{2}tool_count:\s*(\d+)\s*$/mu.exec(content)?.[1];
+  return {
+    canonical: !(await canonicalSkillNeedsInstall(
+      home,
+      clientIds,
+      claudeSkillsDirectory,
+    )),
+    version: /^\s{2}version:\s*"([^"]+)"\s*$/mu.exec(content)?.[1] ?? null,
+    toolCount: toolCount === undefined ? null : Number.parseInt(toolCount, 10),
+  };
 };
